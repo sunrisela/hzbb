@@ -1,0 +1,2 @@
+
+Thin::Logging.debug = true

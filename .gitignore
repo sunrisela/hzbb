@@ -1,0 +1,11 @@
+/.bundle
+/tmp
+/log
+/config/environments/production.rb
+/config/mongoid.yml
+/config/thin.yml
+
+*~
+.project
+
+.DS_Store
