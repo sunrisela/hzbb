@@ -20,15 +20,8 @@ gem 'eventmachine'
 gem 'em-http-request'
 gem 'em-synchrony'
 
-
-# Gems used only for assets and not required
-# in production environments by default.
-group :assets do
-  gem 'sass-rails', '~> 3.2.3'
-  gem 'uglifier', '>= 1.0.3'
-end
-
-gem 'jquery-rails'
+gem 'sass'
+gem 'nokogiri'
 
 group :development do
   # A development server that reloads our app code on each request so we don't need to restart the server to see our changes.
