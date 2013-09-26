@@ -7,6 +7,7 @@ gem 'yajl-ruby'
 # DB
 gem "bson_ext"
 gem "mongoid"
+gem "mongoid-paperclip"
 
 # framework
 gem "sinatra"

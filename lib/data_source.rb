@@ -3,9 +3,11 @@ require 'net/http'
 require 'em-synchrony/em-http'
 require 'nokogiri'
 require 'cgi'
+require './lib/business_logger.rb'
 
 class DataSource
   SITE = "http://www.hzbus.cn"
+  ZXCCLICK_PARAMS = %W{dutyStatus provideService name address serviceTime phone idx tCount cCount lon lat roundBuilding isClear bigimage smallimage stopstatus roadposition}
   
   def initialize(opts={})
     @opts    = opts.reverse_merge({
@@ -22,15 +24,56 @@ class DataSource
     
     parser = Proc.new{|res_body|
       doc = Nokogiri::HTML(res_body)
+      nodes = []
       doc.css('#dvInit li.bt').each do |e|
-        v = e.attributes['onclick'].value
-        unescape_unicode( v.match(/ZXCClick\('.*'\)/)[0].match(/'.*'/)[0] )
+        v = e.attributes['onclick'].value.match(/ZXCClick\((.+?)\);/).try(:[], 1)
+        if v
+          data  = unescape_unicode(v).split(',').map do |e| 
+            e.gsub!(/^' ?|'$/, "")
+            e if e.length>0 && e!='-'
+          end
+          hdata = {}
+          ZXCCLICK_PARAMS.each_with_index do |p,i|
+            hdata[p] = (data[i].present? && data[i]!='-') ? data[i] : nil
+          end
+          name_splited = hdata['name'].sub('№', '').split(' ')
+          if name_splited[0].present? && name_splited[1]!='-'
+            s = BicycleStation.new(
+              :code            => name_splited[0],
+              :name            => name_splited[1],
+              :address         => hdata['address'],
+              :road_position   => hdata['roadposition'] && hdata['roadposition'].gsub(/[\(\)]/,''),
+              :rent_num        => hdata['tCount'].to_i,
+              :idle_num        => hdata['cCount'].to_i,
+              :service_time    => hdata['serviceTime'],
+              :provide_service => hdata['provideService'] && hdata['provideService'].split("&nbsp;"),
+              :phone           => hdata['phone'],
+              :duty_status     => hdata['dutyStatus'],
+              :stop_status     => hdata['stopstatus'] && hdata['stopstatus'].to_i,
+              :round_building  => hdata['roundBuilding']
+            )
+            s.location = [hdata['lon'].to_f, hdata['lat'].to_f]  if hdata['lon']=='0' && hdata['lat']=='0'
+            begin
+              s.image  = URI.parse("#{SITE}/#{hdata['bigimage']}")  if hdata['bigimage']
+            rescue OpenURI::HTTPError => ex
+              @logger.error(ex.exception.inspect+"\n\t"+ex.backtrace.join("\n\t"))
+            end
+            nodes << s
+          end
+        end
       end
+      nodes
     }
     
-    block_given? ? em_request(uri, params, :parser => parser, &block) : get(uri, params, :parser => parser)
+    block_given? ? em_request(uri, params, {:parser => parser}, &block) : get(uri, params, {:parser => parser})
   end
   
+  def parse_ZXCClick_func_parameters
+    uri = URI.parse "#{SITE}/map/cTJs.js"
+    res = get(uri, {}, {:parse_response => false})
+    str = res.match(/function ZXCClick\((.*)\)/).try(:[], 1)
+    str.strip.split(",")  if str
+  end
   
   def get(uri, params, opts={})
     opts.reverse_merge!(:parse_response => true)
@@ -40,8 +83,8 @@ class DataSource
     request  = Net::HTTP::Get.new(uri.request_uri)
     response = _send_request(uri, request, :body => opts[:body])
     if response
-      if opts[:parse_response]
-        JSON.parse response.body
+      if opts[:parse_response] && opts[:parser]
+        opts[:parser].call(response.body)
       else
         response.body
       end
@@ -63,8 +106,8 @@ class DataSource
     # success
     http.callback do
       rsp = http.response
-      if opts[:parse_response]
-        yield 
+      if opts[:parse_response] && opts[:parser]
+        yield opts[:parser].call(rsp)
       else
         yield rsp
       end
@@ -83,6 +126,7 @@ class DataSource
     
     http
   end
+  
   
   private
   

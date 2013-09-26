@@ -4,6 +4,8 @@
 /config/environments/production.rb
 /config/mongoid.yml
 /config/thin.yml
+/public/system
+/public/assets
 
 *~
 .project
