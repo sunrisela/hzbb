@@ -18,9 +18,16 @@ class DataSource
   end
   
   def bicycle_stations_query(opts={})
-    opts.reverse_merge!(:area => -1, :rnd => 5)
+    opts.reverse_merge!(:area => -1, :rnd => 5, :page => 1)
     uri = URI.parse "#{SITE}/Page/BicyleSquare.aspx"
-    params = opts
+    params = opts.except(:page)
+    
+    # page大于1时，需要__VIEWSTATE参数
+    if opts[:page]>1
+      params[:AspNetPager1_input] = opts[:page]  
+      params[:__VIEWSTATE] = get_viewstatus(opts[:page])
+      params[:__EVENTTARGET] = "AspNetPager1"
+    end
     
     parser = Proc.new{|res_body|
       doc = Nokogiri::HTML(res_body)
@@ -62,10 +69,11 @@ class DataSource
           end
         end
       end
-      nodes
+      #nodes
+      { :nodes => nodes, :viewstatus => record_viewstatus(doc, opts[:page]) }
     }
     
-    block_given? ? em_request(uri, params, {:parser => parser}, &block) : get(uri, params, {:parser => parser})
+    block_given? ? em_request(uri, params, {:parser => parser}, &block) : post(uri, params, {:parser => parser})
   end
   
   def parse_ZXCClick_func_parameters
@@ -81,6 +89,26 @@ class DataSource
     puts uri.to_s
     @logger.info(uri.to_s)
     request  = Net::HTTP::Get.new(uri.request_uri)
+    response = _send_request(uri, request, :body => opts[:body])
+    if response
+      if opts[:parse_response] && opts[:parser]
+        opts[:parser].call(response.body)
+      else
+        response.body
+      end
+    end
+  end
+  
+  def post(uri, params, opts={})
+    opts.reverse_merge!(:parse_response => true)
+    uri.query = URI.encode_www_form(params)
+    
+    puts uri.to_s
+    @logger.info(uri.to_s)
+    
+    request  = Net::HTTP::Post.new(uri.request_uri)
+    request.set_form_data(params)
+    
     response = _send_request(uri, request, :body => opts[:body])
     if response
       if opts[:parse_response] && opts[:parser]
@@ -132,6 +160,28 @@ class DataSource
   
   def unescape_unicode(str)
     str.gsub(/(%u\w+)/){|e| [e[2..-1].hex].pack("U")}
+  end
+  
+  def get_viewstatus(page)
+    file_path = "tmp/files/__VIEWSTATE_#{page}.txt"
+    if File.exist?(file_path)
+      File.new(file_path).read
+    else
+      file_path = Dir["tmp/files/__VIEWSTATE_*"].first
+      File.new(file_path).read  if file_path
+    end
+  end
+  
+  def record_viewstatus(doc, page)
+    el = doc.css("#__VIEWSTATE").first
+    if el && el['value']
+      file_dir  = "tmp/files"
+      file_path = "#{file_dir}/__VIEWSTATE_#{page}.txt"
+      FileUtils.mkdir_p file_dir
+      File.open(file_path, "w") do|f|
+        f << el['value']
+      end
+    end
   end
   
   def _send_request(url, request, opts={})
