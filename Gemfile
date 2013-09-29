@@ -22,6 +22,7 @@ gem 'em-http-request'
 gem 'em-synchrony'
 
 gem 'sass'
+# A HTML, XML, SAX, and Reader parser.
 gem 'nokogiri'
 
 group :development do

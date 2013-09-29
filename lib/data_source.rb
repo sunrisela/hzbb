@@ -6,7 +6,7 @@ require 'cgi'
 require './lib/business_logger.rb'
 
 class DataSource
-  SITE = "http://www.hzbus.cn"
+  SITE = $config[:hzbus_host]
   ZXCCLICK_PARAMS = %W{dutyStatus provideService name address serviceTime phone idx tCount cCount lon lat roundBuilding isClear bigimage smallimage stopstatus roadposition}
   
   def initialize(opts={})
@@ -14,18 +14,18 @@ class DataSource
       :retries => 2,
       :timeout => 60
     })
-    @logger = BusinessLogger.new('log/data_source.log','weekly')
+    @logger = BusinessLogger.new('log/data_source.log')
   end
   
-  def bicycle_stations_query(opts={})
+  def bicycle_stations_query(opts={}, &block)
     opts.reverse_merge!(:area => -1, :rnd => 5, :page => 1)
     uri = URI.parse "#{SITE}/Page/BicyleSquare.aspx"
-    params = opts.except(:page)
+    params = opts.slice(:area, :rnd)
     
     # page大于1时，需要__VIEWSTATE参数
     if opts[:page]>1
       params[:AspNetPager1_input] = opts[:page]  
-      params[:__VIEWSTATE] = get_viewstatus(opts[:page])
+      params[:__VIEWSTATE] = get_viewstatus(opts[:page]-1)
       params[:__EVENTTARGET] = "AspNetPager1"
     end
     
@@ -43,34 +43,10 @@ class DataSource
           ZXCCLICK_PARAMS.each_with_index do |p,i|
             hdata[p] = (data[i].present? && data[i]!='-') ? data[i] : nil
           end
-          name_splited = hdata['name'].sub('№', '').split(' ')
-          if name_splited[0].present? && name_splited[1]!='-'
-            s = BicycleStation.new(
-              :code            => name_splited[0],
-              :name            => name_splited[1],
-              :address         => hdata['address'],
-              :road_position   => hdata['roadposition'] && hdata['roadposition'].gsub(/[\(\)]/,''),
-              :rent_num        => hdata['tCount'].to_i,
-              :idle_num        => hdata['cCount'].to_i,
-              :service_time    => hdata['serviceTime'],
-              :provide_service => hdata['provideService'] && hdata['provideService'].split("&nbsp;"),
-              :phone           => hdata['phone'],
-              :duty_status     => hdata['dutyStatus'],
-              :stop_status     => hdata['stopstatus'] && hdata['stopstatus'].to_i,
-              :round_building  => hdata['roundBuilding']
-            )
-            s.location = [hdata['lon'].to_f, hdata['lat'].to_f]  if hdata['lon']=='0' && hdata['lat']=='0'
-            begin
-              s.image  = URI.parse("#{SITE}/#{hdata['bigimage']}")  if hdata['bigimage']
-            rescue OpenURI::HTTPError => ex
-              @logger.error(ex.exception.inspect+"\n\t"+ex.backtrace.join("\n\t"))
-            end
-            nodes << s
-          end
+          nodes << hdata  if hdata.present?
         end
       end
-      #nodes
-      { :nodes => nodes, :viewstatus => record_viewstatus(doc, opts[:page]) }
+      { :nodes => nodes, :viewstatus => record_viewstatus(doc, opts[:page]), :page_count => get_page_count(doc) }
     }
     
     block_given? ? em_request(uri, params, {:parser => parser}, &block) : post(uri, params, {:parser => parser})
@@ -80,12 +56,12 @@ class DataSource
     uri = URI.parse "#{SITE}/map/cTJs.js"
     res = get(uri, {}, {:parse_response => false})
     str = res.match(/function ZXCClick\((.*)\)/).try(:[], 1)
-    str.strip.split(",")  if str
+    str.strip.gsub(',', '')  if str
   end
   
   def get(uri, params, opts={})
     opts.reverse_merge!(:parse_response => true)
-    uri.query = URI.encode_www_form(params)
+    uri.query = URI.encode_www_form(params)  if params.present?
     puts uri.to_s
     @logger.info(uri.to_s)
     request  = Net::HTTP::Get.new(uri.request_uri)
@@ -101,7 +77,7 @@ class DataSource
   
   def post(uri, params, opts={})
     opts.reverse_merge!(:parse_response => true)
-    uri.query = URI.encode_www_form(params)
+    uri.query = URI.encode_www_form(params)  if params.present?
     
     puts uri.to_s
     @logger.info(uri.to_s)
@@ -129,7 +105,7 @@ class DataSource
     http = EM::HttpRequest.new(uri, 
       :connect_timeout => @opts[:timeout], 
       :inactivity_timeout => 2*@opts[:timeout]
-    ).aget(:query => params)
+    ).apost(:body => params)
     
     # success
     http.callback do
@@ -162,6 +138,15 @@ class DataSource
     str.gsub(/(%u\w+)/){|e| [e[2..-1].hex].pack("U")}
   end
   
+  def get_page_count(doc)
+    el = doc.css("#AspNetPager1 div")[1]
+    debugger unless el
+    if el
+      c = el.content.scan(/[0-9]+/).first
+      c.to_i if c
+    end
+  end
+  
   def get_viewstatus(page)
     file_path = "tmp/files/__VIEWSTATE_#{page}.txt"
     if File.exist?(file_path)
@@ -178,9 +163,10 @@ class DataSource
       file_dir  = "tmp/files"
       file_path = "#{file_dir}/__VIEWSTATE_#{page}.txt"
       FileUtils.mkdir_p file_dir
-      File.open(file_path, "w") do|f|
+      File.open(file_path, "w") do |f|
         f << el['value']
       end
+      el['value']
     end
   end
   

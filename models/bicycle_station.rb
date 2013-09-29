@@ -48,6 +48,11 @@ class BicycleStation
       self.address
     end
   end
-
+  
+  def image_url(style=:big)
+    key = "#{style}image"
+    "#{$config[:hzbus_host]}/#{self[key]}"  if self[key]
+  end
+  
 
 end

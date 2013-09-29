@@ -7,13 +7,13 @@ require 'erb'
 require 'sass'
 
 
-
+$config = {}
 configure :development do
-  
+  $config[:hzbus_host] = "http://www.hzbus.cn"
 end
 
 configure :production do
-  
+  $config[:hzbus_host] = "http://www.hzbus.cn"
 end
 
 require File.expand_path("../config/environments/#{Sinatra::Base.environment}",  __FILE__)
@@ -25,7 +25,7 @@ Dir[File.expand_path("../models/*.rb",__FILE__)].each{|file| require file }
 
 Mongoid.load!("config/mongoid.yml", Sinatra::Base.environment)
 
-require './lib/data_source.rb'
+#require './lib/data_source.rb'
 
 # routes
 get '/' do

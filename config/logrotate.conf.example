@@ -1,0 +1,25 @@
+# sudo ln -nfs ~/hzbb/shared/config/logrotate.conf /etc/logrotate.d/hzbb
+# sudo logrotate ~/hzbb/config/logrotate.conf
+
+/home/www/hzbb/current/log/*.log {
+  # 按周阶段, daily, weekly, monthly, yearly
+  daily
+  # 即使log文件不存在，也不抛出错误消息
+  missingok
+  # 保留天数
+  rotate 14
+  # 增加日期作为后缀，不然会是一串无意义的数字
+  dateext
+  # 压缩
+  compress
+  # 不压缩前一个(previous)截断的文件（需要与compress一起用）
+  delaycompress
+  # If the log file is empty, there’s no need to rotate it.
+  notifempty
+  # Makes a backup copy of the current log and then clears the log file for continued writing.
+  copytruncate
+  #lastaction
+    #kill -HUP `tail tmp/pids/thin.*.pid | grep ^[0-9]`
+  #endscript
+}
+
